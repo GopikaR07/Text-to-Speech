@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import TextInput from './components/TextInput';
 import VoiceControls from './components/VoiceControls';
 import AudioPlayer from './components/AudioPlayer';
 import ErrorMessage from './components/ErrorMessage';
+
+import { checkBackendHealth } from './services/api';
 import './App.css';
 
 export default function App() {
@@ -14,6 +16,16 @@ export default function App() {
   const [error, setError] = useState('');
 
   const MAX_TEXT_LENGTH = 500;
+
+  useEffect(() => {
+  checkBackendHealth()
+    .then((data) => {
+      console.log('Backend:', data.message);
+    })
+    .catch((error) => {
+      console.error('Backend connection failed:', error);
+    });
+}, []);
 
   const mockLanguages = [
     { code: 'en-US', name: 'English (United States)' },
