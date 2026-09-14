@@ -1,42 +1,83 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import TextInput from './components/TextInput';
 import VoiceControls from './components/VoiceControls';
 import AudioPlayer from './components/AudioPlayer';
 import ErrorMessage from './components/ErrorMessage';
 
-import { checkBackendHealth } from './services/api';
+import {
+  checkBackendHealth,
+  generateSpeech,
+  getVoices,
+} from './services/api';
+
 import './App.css';
 
 export default function App() {
   const [text, setText] = useState('');
   const [selectedLang, setSelectedLang] = useState('en-US');
-  const [selectedVoice, setSelectedVoice] = useState('en-US-Female');
+  const [selectedVoice, setSelectedVoice] = useState('af_heart');
+  const [voices, setVoices] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [audioUrl, setAudioUrl] = useState('');
   const [error, setError] = useState('');
+  const [previewingVoice, setPreviewingVoice] = useState('');
+
+  const previewAudioRef = useRef(null);
 
   const MAX_TEXT_LENGTH = 500;
 
   useEffect(() => {
-  checkBackendHealth()
-    .then((data) => {
-      console.log('Backend:', data.message);
-    })
-    .catch((error) => {
-      console.error('Backend connection failed:', error);
-    });
-}, []);
+    checkBackendHealth()
+      .then((data) => {
+        console.log('Backend:', data.message);
+      })
+      .catch((error) => {
+        console.error('Backend connection failed:', error);
+      });
+  }, []);
 
-  const mockLanguages = [
-    { code: 'en-US', name: 'English (United States)' },
-    { code: 'es-ES', name: 'Spanish (Spain)' },
-    { code: 'hi-IN', name: 'Hindi (India)' },
-  ];
+  useEffect(() => {
+    getVoices()
+      .then((data) => {
+        setVoices(data.voices);
+      })
+      .catch((error) => {
+        setError(error.message);
+      });
+  }, []);
 
-  const mockVoices = [
-    { id: 'en-US-Female', name: 'Ava (Neural)', gender: 'Female' },
-    { id: 'en-US-Male', name: 'Ethan (Neural)', gender: 'Male' },
-  ];
+  useEffect(() => {
+    const matchingVoices = voices.filter(
+      (voice) => voice.language === selectedLang
+    );
+
+    const currentVoiceIsValid = matchingVoices.some(
+      (voice) => voice.id === selectedVoice
+    );
+
+    if (!currentVoiceIsValid && matchingVoices.length > 0) {
+      setSelectedVoice(matchingVoices[0].id);
+    }
+  }, [selectedLang, voices, selectedVoice]);
+
+  const languageNames = {
+    'en-US': 'English (United States)',
+    'en-GB': 'English (United Kingdom)',
+    'es-ES': 'Spanish (Spain)',
+    'fr-FR': 'French',
+    'hi-IN': 'Hindi (India)',
+    'it-IT': 'Italian',
+    'ja-JP': 'Japanese',
+    'pt-BR': 'Portuguese (Brazil)',
+    'zh-CN': 'Chinese',
+  };
+
+  const languages = [
+    ...new Set(voices.map((voice) => voice.language)),
+  ].map((code) => ({
+    code,
+    name: languageNames[code] || code,
+  }));
 
   const handleGenerate = () => {
     setError('');
@@ -56,16 +97,42 @@ export default function App() {
     }
 
     setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
-      setAudioUrl('https://www.w3schools.com/html/horse.mp3');
-    }, 1200);
+
+    generateSpeech(text, selectedVoice)
+      .then((url) => {
+        setAudioUrl(url);
+      })
+      .catch((error) => {
+        setError(error.message);
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
   };
 
   const handleClear = () => {
     setText('');
     setAudioUrl('');
     setError('');
+  };
+
+  const handlePreviewVoice = (voiceId) => {
+    if (previewingVoice) return;
+    setError('');
+    setPreviewingVoice(voiceId);
+
+    generateSpeech('Hello, this is a quick preview of this voice.', voiceId)
+      .then((url) => {
+        const audio = new Audio(url);
+        previewAudioRef.current = audio;
+        audio.onended = () => setPreviewingVoice('');
+        audio.onerror = () => setPreviewingVoice('');
+        audio.play();
+      })
+      .catch((error) => {
+        setError(error.message);
+        setPreviewingVoice('');
+      });
   };
 
   return (
@@ -89,9 +156,23 @@ export default function App() {
             <span className="brand-sub">Neural Text-to-Speech</span>
           </div>
         </div>
-        <div className="live-status-pill">
-          <div className="pulse-core"></div>
-          Engine Active
+
+        <div className="nav-right">
+          <div className="live-status-pill">
+            <div className="pulse-core"></div>
+            Engine Active
+          </div>
+
+          <div className="nav-divider"></div>
+
+          <div className="nav-meta">
+            <span className="nav-meta-title">Natural Voices</span>
+            <span className="nav-meta-sub">Powered by Kokoro (OpenRouter)</span>
+          </div>
+
+          <div className="nav-eq">
+            <span></span><span></span><span></span><span></span>
+          </div>
         </div>
       </nav>
 
@@ -130,6 +211,10 @@ export default function App() {
               )}
             </button>
             <button className="btn-clear-action" onClick={handleClear}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8"/>
+                <path d="M3 3v5h5"/>
+              </svg>
               Clear
             </button>
           </div>
@@ -141,12 +226,14 @@ export default function App() {
           </div>
 
           <VoiceControls
-            languages={mockLanguages}
+            languages={languages}
             selectedLang={selectedLang}
             setSelectedLang={setSelectedLang}
-            voices={mockVoices}
+            voices={voices}
             selectedVoice={selectedVoice}
             setSelectedVoice={setSelectedVoice}
+            previewingVoice={previewingVoice}
+            onPreviewVoice={handlePreviewVoice}
           />
         </aside>
       </div>
